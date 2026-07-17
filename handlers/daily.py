@@ -241,10 +241,12 @@ async def meat_chosen(callback: CallbackQuery, state: FSMContext):
     # Проверяем последний незафиксированный выбор
     last_choice = await db.get_last_unfinalized_choice()
 
-    if last_choice and last_choice["meat_id"] != item_id:
+    if last_choice:
         minutes_passed = (datetime.now() - datetime.fromisoformat(last_choice["selected_at"])).total_seconds() / 60
 
         if minutes_passed < cancel_minutes:
+            # Отменяем старый выбор ВСЕГДА, даже если выбрано то же мясо
+            # Это предотвращает двойное списание при повторном выборе того же мяса
             await db.cancel_choice(last_choice["id"])
             await callback.message.answer(
                 f"✅ Предыдущий выбор «{last_choice['meat_name']}» отменён, остатки возвращены"
@@ -380,13 +382,14 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
     else:
         time_text = f"{minutes} мин"
 
-    # Проверяем ещё раз последний незафиксированный выбор
+    # Проверяем последний незафиксированный выбор
     last_choice = await db.get_last_unfinalized_choice()
 
-    if last_choice and last_choice["meat_id"] != data["meat_id"]:
+    if last_choice:
         minutes_passed = (datetime.now() - datetime.fromisoformat(last_choice["selected_at"])).total_seconds() / 60
 
         if minutes_passed < cancel_minutes:
+            # Отменяем старый выбор ВСЕГДА
             await db.cancel_choice(last_choice["id"])
             await callback.message.answer(
                 f"✅ Предыдущий выбор «{last_choice['meat_name']}» отменён, остатки возвращены"
