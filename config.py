@@ -8,7 +8,7 @@ WIFE_CHAT_ID = int(os.getenv("WIFE_CHAT_ID", "0"))
 HUSBAND_CHAT_ID = int(os.getenv("HUSBAND_CHAT_ID", "0"))
 DB_PATH = os.getenv("DB_PATH", "foodbot.db")
 
-DEFAULT_SCHEDULE_TIME = "16:00"  # используется, если время ещё не задано через /settime
+DEFAULT_SCHEDULE_TIME = "10:00"
 
 if not BOT_TOKEN:
     raise RuntimeError(

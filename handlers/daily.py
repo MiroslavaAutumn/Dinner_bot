@@ -11,6 +11,7 @@ from aiogram import Router, F, Bot
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.fsm.context import FSMContext
+from datetime import datetime
 
 import database as db
 import keyboards as kb
@@ -92,14 +93,12 @@ async def cmd_food(message: Message, state: FSMContext, bot: Bot):
     current_state = await state.get_state()
 
     if current_state:
-        # Если муж в диалоге — повторяем текущий вопрос с кнопками
         await message.answer(
             "Пожалуйста, используй кнопки для выбора 👆\n"
             "Или нажми ❌ Отмена"
         )
         await resend_current_question(message, state)
     else:
-        # Если не в диалоге — отправляем новый вопрос
         await send_daily_question_forced(bot)
 
 
@@ -137,14 +136,12 @@ async def back_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
     data = await state.get_data()
 
     if current_state == DailyMeal.choosing_garnish:
-        # Возвращаемся к выбору мяса
         await state.clear()
         await callback.answer()
         await callback.message.delete()
         await send_daily_question(bot)
 
     elif current_state == DailyMeal.choosing_salad:
-        # Возвращаемся к выбору гарнира
         meat_id = data.get("meat_id")
         meat_name = data.get("meat_name", "Блюдо")
 
@@ -155,18 +152,15 @@ async def back_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
             await callback.message.delete()
             return
 
-        # Получаем гарниры для этого мяса
         meat_garnishes = await db.get_meat_garnishes(meat_id)
 
         if meat_garnishes:
-            # Если есть разрешённые гарниры
             await state.set_state(DailyMeal.choosing_garnish)
             await callback.message.edit_text(
                 f"{meat_name}. Какой гарнир? (доступны только разрешённые)",
                 reply_markup=kb.garnishes_simple_keyboard(meat_garnishes, show_back=True),
             )
         else:
-            # Если нет разрешённых — показываем все
             all_garnishes = await db.get_garnishes()
             if all_garnishes:
                 await state.set_state(DailyMeal.choosing_garnish)
@@ -175,14 +169,12 @@ async def back_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
                     reply_markup=kb.garnishes_simple_keyboard(all_garnishes, show_back=True),
                 )
             else:
-                # Если гарниров нет — возвращаемся к мясу
                 await state.clear()
                 await send_daily_question(bot)
 
         await callback.answer()
 
     else:
-        # Если нажали "Назад" в непонятном состоянии — просто возвращаемся к мясу
         await state.clear()
         await send_daily_question(bot)
         await callback.answer()
@@ -242,6 +234,25 @@ async def meat_chosen(callback: CallbackQuery, state: FSMContext):
     if not item:
         await callback.answer("Эта позиция уже недоступна, выбери другую", show_alert=True)
         return
+
+    # Получаем время отмены из БД
+    cancel_minutes = await db.get_cancel_window_minutes()
+
+    # Проверяем последний незафиксированный выбор
+    last_choice = await db.get_last_unfinalized_choice()
+
+    if last_choice and last_choice["meat_id"] != item_id:
+        minutes_passed = (datetime.now() - datetime.fromisoformat(last_choice["selected_at"])).total_seconds() / 60
+
+        if minutes_passed < cancel_minutes:
+            await db.cancel_choice(last_choice["id"])
+            await callback.message.answer(
+                f"✅ Предыдущий выбор «{last_choice['meat_name']}» отменён, остатки возвращены"
+            )
+        else:
+            await callback.message.answer(
+                f"⏰ Время на изменение выбора истекло. «{last_choice['meat_name']}» уже зафиксирован."
+            )
 
     await state.update_data(meat_id=item["id"], meat_name=item["name"])
 
@@ -357,8 +368,40 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await callback.message.delete()
         return
 
+    # Получаем время отмены из БД
+    cancel_minutes = await db.get_cancel_window_minutes()
+    hours = cancel_minutes // 60
+    minutes = cancel_minutes % 60
+
+    if hours > 0 and minutes > 0:
+        time_text = f"{hours} ч {minutes} мин"
+    elif hours > 0:
+        time_text = f"{hours} ч"
+    else:
+        time_text = f"{minutes} мин"
+
+    # Проверяем ещё раз последний незафиксированный выбор
+    last_choice = await db.get_last_unfinalized_choice()
+
+    if last_choice and last_choice["meat_id"] != data["meat_id"]:
+        minutes_passed = (datetime.now() - datetime.fromisoformat(last_choice["selected_at"])).total_seconds() / 60
+
+        if minutes_passed < cancel_minutes:
+            await db.cancel_choice(last_choice["id"])
+            await callback.message.answer(
+                f"✅ Предыдущий выбор «{last_choice['meat_name']}» отменён, остатки возвращены"
+            )
+        else:
+            await callback.message.answer(
+                f"⏰ Время на изменение выбора истекло. «{last_choice['meat_name']}» уже зафиксирован."
+            )
+
+    # Списываем текущее мясо
     await db.decrement_item(data["meat_id"], amount=1)
-    await db.log_meal(
+
+    # Сохраняем выбор в лог с meat_id для возможности возврата
+    await db.save_choice_with_meat_id(
+        meat_id=data["meat_id"],
         meat_name=data["meat_name"],
         garnish_name=data.get("garnish_name"),
         salad_name=data["salad_name"],
@@ -370,13 +413,12 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await callback.message.delete()
     await callback.answer()
 
-    # Формируем сообщение для мужа с его выбором
+    # Формируем сообщение для мужа
     if data.get("garnish_name"):
         meal_text = f"{data['meat_name']} + {data['garnish_name']} + {data['salad_name']}"
     else:
         meal_text = f"{data['meat_name']} + {data['salad_name']} (без гарнира)"
 
-    # Клавиатура с кнопкой "Изменить выбор"
     change_keyboard = InlineKeyboardMarkup(
         inline_keyboard=[[
             InlineKeyboardButton(text="✏️ Изменить выбор", callback_data="change_choice")
@@ -384,10 +426,13 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
     )
 
     await callback.message.answer(
-        f"Вы выбрали {meal_text}, приятного аппетита! 🍽️\n\nЕсли вы передумали, нажмите кнопку ниже",
+        f"Вы выбрали {meal_text}, приятного аппетита! 🍽️\n\n"
+        f"У вас есть {time_text}, чтобы изменить выбор.\n"
+        f"Если вы передумали, нажмите кнопку ниже",
         reply_markup=change_keyboard
     )
 
+    # Отправляем жене
     if data.get("garnish_name"):
         summary = (
             f"🍽 Сегодня муж выбрал:\n"
@@ -402,6 +447,8 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
     if item and item["quantity"] == 0:
         summary += f"\n\n⚠️ {data['meat_name']} закончились — пора докупить."
 
+    summary += f"\n\n⏰ У мужа есть {time_text} на изменение выбора."
+
     await bot.send_message(WIFE_CHAT_ID, summary)
 
 
@@ -410,6 +457,29 @@ async def confirm_yes(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.callback_query(F.data == "change_choice")
 async def change_choice_callback(callback: CallbackQuery, state: FSMContext, bot: Bot):
     """Обработка кнопки 'Изменить выбор'."""
+    last_choice = await db.get_last_unfinalized_choice()
+
+    if last_choice:
+        cancel_minutes = await db.get_cancel_window_minutes()
+        minutes_passed = (datetime.now() - datetime.fromisoformat(last_choice["selected_at"])).total_seconds() / 60
+
+        if minutes_passed >= cancel_minutes:
+            hours = cancel_minutes // 60
+            minutes = cancel_minutes % 60
+            if hours > 0 and minutes > 0:
+                time_text = f"{hours} ч {minutes} мин"
+            elif hours > 0:
+                time_text = f"{hours} ч"
+            else:
+                time_text = f"{minutes} мин"
+
+            await callback.answer(
+                f"⏰ Время на изменение выбора истекло (прошло {time_text}).",
+                show_alert=True
+            )
+            await callback.message.edit_reply_markup(reply_markup=None)
+            return
+
     await callback.answer()
     await callback.message.delete()
     await state.clear()
@@ -508,5 +578,4 @@ async def handle_unknown(message: Message, state: FSMContext, bot: Bot):
         )
         await resend_current_question(message, state)
     else:
-        # Вне диалога просто игнорируем сообщения
         pass

@@ -39,9 +39,12 @@ async def setup_commands(bot: Bot):
     admin_commands = [
         BotCommand(command="add", description="Добавить заготовку"),
         BotCommand(command="list", description="Показать остатки"),
-        BotCommand(command="edit", description="Изменить количество"),
+        BotCommand(command="edit", description="Изменить количество или переименовать"),
         BotCommand(command="delete", description="Удалить позицию"),
+        BotCommand(command="setgarnish", description="Изменить гарниры для мяса"),
         BotCommand(command="settime", description="Время ежедневного вопроса"),
+        BotCommand(command="setcancel", description="Время на изменение выбора"),
+        BotCommand(command="showcancel", description="Показать время на изменение"),
         BotCommand(command="ask", description="Спросить мужа прямо сейчас"),
         BotCommand(command="help", description="Список всех команд"),
         BotCommand(command="start", description="Приветственное сообщение"),
@@ -53,6 +56,7 @@ async def setup_commands(bot: Bot):
         BotCommand(command="food", description="Что приготовить сегодня?"),
         BotCommand(command="help", description="Список команд"),
         BotCommand(command="start", description="Приветственное сообщение"),
+        BotCommand(command="cancel", description="Отменить выбор"),
     ]
     await _set_commands_safe(bot, husband_commands, HUSBAND_CHAT_ID, "мужа")
 

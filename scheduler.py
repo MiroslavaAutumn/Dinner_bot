@@ -6,6 +6,7 @@ from config import DEFAULT_SCHEDULE_TIME
 
 scheduler = AsyncIOScheduler()
 JOB_ID = "daily_question"
+FINALIZE_JOB_ID = "finalize_choices"
 
 
 async def setup_scheduler(bot: Bot):
@@ -14,6 +15,15 @@ async def setup_scheduler(bot: Bot):
 
     time_str = await db.get_setting("schedule_time", DEFAULT_SCHEDULE_TIME)
     _add_job(bot, time_str, send_daily_question)
+
+    # Добавляем джоб для фиксации выборов (каждый час)
+    scheduler.add_job(
+        db.finalize_expired_choices,
+        CronTrigger(minute=0),
+        id=FINALIZE_JOB_ID,
+        replace_existing=True,
+    )
+
     scheduler.start()
 
 

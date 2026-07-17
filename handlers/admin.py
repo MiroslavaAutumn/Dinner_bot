@@ -6,6 +6,8 @@
 /delete    — удалить позицию (мясо/гарнир/салат) с множественным выбором
 /setgarnish — изменить список гарниров для мясной заготовки
 /settime   — задать время ежедневной рассылки мужу
+/setcancel — установить время на изменение выбора для мужа
+/showcancel — показать текущее время на изменение выбора
 /ask       — отправить мужу вопрос прямо сейчас (вручную, без ожидания расписания)
 """
 
@@ -50,7 +52,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
 
     # ---- Редактирование ----
     if current_state == EditItem.choose_item:
-        # Возвращаемся к выбору категории
         await state.set_state(EditItem.choose_category)
         await callback.message.edit_text(
             "Что редактируем?",
@@ -60,7 +61,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     if current_state == EditItem.new_name or current_state == EditItem.new_quantity:
-        # Возвращаемся к выбору действия для мяса или к списку элементов
         item_type = data.get("item_type")
         item_id = data.get("item_id")
         category = data.get("edit_category", "meat")
@@ -84,7 +84,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
                 await callback.answer()
                 return
 
-        # Для гарниров и салатов возвращаемся к списку
         await state.set_state(EditItem.choose_item)
 
         if category == "garnish":
@@ -92,7 +91,7 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
             if items:
                 await callback.message.edit_text(
                     "Какой гарнир переименовать?",
-                    reply_markup=kb.simple_edit_keyboard(items, "edit_garnish")
+                    reply_markup=kb.simple_edit_keyboard_with_back(items, "edit_garnish")
                 )
             else:
                 await state.clear()
@@ -102,19 +101,18 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
             if items:
                 await callback.message.edit_text(
                     "Какой салат переименовать?",
-                    reply_markup=kb.simple_edit_keyboard(items, "edit_salad")
+                    reply_markup=kb.simple_edit_keyboard_with_back(items, "edit_salad")
                 )
             else:
                 await state.clear()
                 await callback.message.edit_text("Салатов нет.")
         else:
-            # Для мяса возвращаемся к списку мяса
             items = await db.get_all_items()
             if items:
                 await state.set_state(EditItem.choose_item)
                 await callback.message.edit_text(
                     "Какую заготовку редактируем?",
-                    reply_markup=kb.items_edit_keyboard(items, "edit_meat")
+                    reply_markup=kb.items_edit_keyboard_with_back(items, "edit_meat")
                 )
             else:
                 await state.clear()
@@ -124,7 +122,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     if current_state == EditItem.choose_category:
-        # Возвращаемся в главное меню
         await state.clear()
         await callback.message.delete()
         await callback.answer()
@@ -133,7 +130,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
 
     # ---- Удаление ----
     if current_state == "delete_selecting":
-        # Возвращаемся к выбору категории удаления
         await state.set_state("delete_category")
         await callback.message.edit_text(
             "Что удаляем?",
@@ -143,7 +139,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     if current_state == "delete_category":
-        # Возвращаемся в главное меню
         await state.clear()
         await callback.message.delete()
         await callback.answer()
@@ -152,7 +147,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
 
     # ---- Добавление ----
     if current_state == AddItem.category:
-        # Возвращаемся в главное меню
         await state.clear()
         await callback.message.delete()
         await callback.answer()
@@ -160,7 +154,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
         return
 
     if current_state == AddItem.name or current_state == AddItem.quantity or current_state == AddItem.choosing_garnishes:
-        # Возвращаемся к выбору категории
         await state.set_state(AddItem.category)
         await callback.message.edit_text(
             "Что добавляем?",
@@ -169,7 +162,6 @@ async def back_callback(callback: CallbackQuery, state: FSMContext):
         await callback.answer()
         return
 
-    # Для всех остальных случаев
     await state.clear()
     await callback.message.delete()
     await callback.answer()
@@ -642,7 +634,6 @@ async def delete_category_chosen(callback: CallbackQuery, state: FSMContext):
     category = callback.data.split(":")[1]
     chat_id = callback.from_user.id
 
-    # Инициализируем выбор для этого пользователя
     if chat_id not in delete_selection:
         delete_selection[chat_id] = {"category": category, "selected": set(), "items": []}
     else:
@@ -772,7 +763,6 @@ async def delete_confirm(callback: CallbackQuery, state: FSMContext):
         await callback.answer("Выбери хотя бы один элемент!", show_alert=True)
         return
 
-    # Удаляем выбранные элементы
     deleted_names = []
     if category == "meat":
         for item_id in selected:
@@ -795,7 +785,6 @@ async def delete_confirm(callback: CallbackQuery, state: FSMContext):
                 deleted_names.append(salad["name"])
                 await db.delete_salad(item_id)
 
-    # Очищаем состояние и удаляем данные пользователя
     await state.clear()
     del delete_selection[chat_id]
 
@@ -840,6 +829,69 @@ async def settime_entered(message: Message, state: FSMContext, bot: Bot):
     await message.answer(f"Готово ✅ Теперь вопрос будет приходить каждый день в {text}")
 
 
+# ---------- /setcancel (установить время на изменение выбора) ----------
+
+@router.message(Command("setcancel"))
+async def cmd_setcancel(message: Message, state: FSMContext):
+    """Установить время на изменение выбора для мужа."""
+    args = message.text.split()
+
+    if len(args) != 3:
+        await message.answer(
+            "❌ Неверный формат.\n"
+            "Используй: /setcancel часы минуты\n"
+            "Например: /setcancel 4 30 — 4 часа 30 минут\n"
+            "Или: /setcancel 0 35 — 35 минут"
+        )
+        return
+
+    try:
+        hours = int(args[1])
+        minutes = int(args[2])
+    except ValueError:
+        await message.answer("❌ Часы и минуты должны быть числами.")
+        return
+
+    if hours < 0 or minutes < 0 or minutes >= 60:
+        await message.answer("❌ Часы должны быть >= 0, минуты от 0 до 59.")
+        return
+
+    total_minutes = hours * 60 + minutes
+
+    if total_minutes == 0:
+        await message.answer("❌ Время должно быть больше 0.")
+        return
+
+    await db.set_cancel_window_minutes(total_minutes)
+
+    if hours > 0 and minutes > 0:
+        time_text = f"{hours} ч {minutes} мин"
+    elif hours > 0:
+        time_text = f"{hours} ч"
+    else:
+        time_text = f"{minutes} мин"
+
+    await message.answer(f"✅ Готово! Время на изменение выбора установлено: {time_text}")
+
+# ---------- /showcancel (показать текущее время) ----------
+
+@router.message(Command("showcancel"))
+async def cmd_showcancel(message: Message):
+    """Показать текущее время на изменение выбора."""
+    total_minutes = await db.get_cancel_window_minutes()
+    hours = total_minutes // 60
+    minutes = total_minutes % 60
+
+    if hours > 0 and minutes > 0:
+        time_text = f"{hours} ч {minutes} мин"
+    elif hours > 0:
+        time_text = f"{hours} ч"
+    else:
+        time_text = f"{minutes} мин"
+
+    await message.answer(f"⏰ Текущее время на изменение выбора: {time_text}")
+
+
 # ---------- /ask ----------
 
 @router.message(Command("ask"))
@@ -872,6 +924,10 @@ async def cmd_help(message: Message):
         "/delete — удалить позиции (множественный выбор)\n\n"
         "<b>Рассылка мужу:</b>\n"
         "/settime — во сколько каждый день присылать вопрос «Что едим сегодня?»\n"
+        "/setcancel часы минуты — установить время на изменение выбора\n"
+        "   Например: /setcancel 4 30 — 4 часа 30 минут\n"
+        "   Или: /setcancel 0 35 — 35 минут\n"
+        "/showcancel — показать текущее время на изменение\n"
         "/ask — отправить этот вопрос прямо сейчас, не дожидаясь расписания\n\n"
         "<b>Прочее:</b>\n"
         "/start — приветственное сообщение\n"

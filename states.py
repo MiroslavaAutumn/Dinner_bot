@@ -5,16 +5,16 @@ class AddItem(StatesGroup):
     """Диалог добавления новой заготовки (мясо/гарнир/салат)."""
     category = State()
     name = State()
-    quantity = State()              # только для мяса
-    choosing_garnishes = State()    # только для мяса — выбор разрешённых гарниров
+    quantity = State()
+    choosing_garnishes = State()
 
 
 class EditItem(StatesGroup):
     """Диалог изменения мясной заготовки."""
-    choose_category = State()       # выбор категории для редактирования
+    choose_category = State()
     choose_item = State()
-    new_name = State()              # для переименования
-    new_quantity = State()          # для изменения количества
+    new_name = State()
+    new_quantity = State()
 
 
 class EditGarnishes(StatesGroup):

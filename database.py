@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import aiosqlite
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import DB_PATH
 
 SCHEMA = """
@@ -53,7 +53,10 @@ CREATE TABLE IF NOT EXISTS meal_log (
     garnish_name TEXT,
     salad_name TEXT,
     is_delivery INTEGER DEFAULT 0,
-    delivery_request TEXT
+    delivery_request TEXT,
+    meat_id INTEGER,
+    selected_at TEXT,
+    is_finalized INTEGER DEFAULT 1
 );
 """
 
@@ -64,6 +67,26 @@ async def init_db():
         await db.commit()
 
     await migrate_default_garnishes()
+    await migrate_meal_log()
+
+
+async def migrate_meal_log():
+    """Добавляет новые колонки в meal_log, если их нет."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("PRAGMA table_info(meal_log)")
+        columns = await cursor.fetchall()
+        column_names = [col[1] for col in columns]
+
+        if "meat_id" not in column_names:
+            await db.execute("ALTER TABLE meal_log ADD COLUMN meat_id INTEGER")
+
+        if "selected_at" not in column_names:
+            await db.execute("ALTER TABLE meal_log ADD COLUMN selected_at TEXT")
+
+        if "is_finalized" not in column_names:
+            await db.execute("ALTER TABLE meal_log ADD COLUMN is_finalized INTEGER DEFAULT 1")
+
+        await db.commit()
 
 
 async def migrate_default_garnishes():
@@ -292,6 +315,23 @@ async def set_setting(key: str, value: str):
         await db.commit()
 
 
+CANCEL_WINDOW_KEY = "cancel_window_minutes"
+
+
+async def get_cancel_window_minutes() -> int:
+    """Возвращает время на изменение выбора в минутах. По умолчанию 240 (4 часа)."""
+    value = await get_setting(CANCEL_WINDOW_KEY, "240")
+    try:
+        return int(value)
+    except ValueError:
+        return 240
+
+
+async def set_cancel_window_minutes(minutes: int):
+    """Устанавливает время на изменение выбора в минутах."""
+    await set_setting(CANCEL_WINDOW_KEY, str(minutes))
+
+
 # ---------- meal log ----------
 
 async def log_meal(
@@ -316,9 +356,9 @@ async def log_meal(
         )
         await db.commit()
 
+
 async def get_last_unfinalized_choice() -> dict | None:
     """Получает последний незафиксированный выбор мужа за сегодня."""
-    today = datetime.now().date().isoformat()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -338,7 +378,6 @@ async def get_last_unfinalized_choice() -> dict | None:
 async def cancel_choice(choice_id: int):
     """Отменяет выбор и возвращает остатки."""
     async with aiosqlite.connect(DB_PATH) as db:
-        # Получаем информацию о выборе
         cursor = await db.execute(
             "SELECT meat_id FROM meal_log WHERE id = ?",
             (choice_id,)
@@ -346,12 +385,10 @@ async def cancel_choice(choice_id: int):
         row = await cursor.fetchone()
         if row and row[0]:
             meat_id = row[0]
-            # Возвращаем 1 порцию мяса
             await db.execute(
                 "UPDATE items SET quantity = quantity + 1 WHERE id = ?",
                 (meat_id,)
             )
-        # Помечаем выбор как отменённый
         await db.execute(
             "UPDATE meal_log SET is_finalized = 1 WHERE id = ?",
             (choice_id,)
@@ -385,8 +422,31 @@ async def save_choice_with_meat_id(
                 delivery_request,
                 meat_id,
                 datetime.now().isoformat(timespec="seconds"),
-                0  # is_finalized = 0 (ещё не зафиксирован окончательно)
+                0
             )
         )
         await db.commit()
         return cursor.lastrowid
+
+
+async def finalize_expired_choices():
+    """Фиксирует выборы, срок которых истёк."""
+    cancel_minutes = await get_cancel_window_minutes()
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT id FROM meal_log 
+            WHERE is_finalized = 0 
+            AND datetime(selected_at) < datetime('now', '-' || ? || ' minutes')
+            """,
+            (cancel_minutes,)
+        )
+        rows = await cursor.fetchall()
+
+        for row in rows:
+            await db.execute(
+                "UPDATE meal_log SET is_finalized = 1 WHERE id = ?",
+                (row[0],)
+            )
+        await db.commit()
