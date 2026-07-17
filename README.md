@@ -19,7 +19,6 @@
 
 Образец можно посмотреть в файле .env.example
 
->>>>>>> 17ec351 (feat: add configurable cancellation window for meal choice)
 ## 4. Команды бота
 
 **Для жены (админ):**
