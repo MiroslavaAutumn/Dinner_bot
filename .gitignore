@@ -1,0 +1,19 @@
+# Секреты и конфигурация
+.env
+
+# База данных
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

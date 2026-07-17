@@ -1,0 +1,15 @@
+[Unit]
+Description=Foodbot - telegram bot for meal planning
+After=network.target
+
+[Service]
+Type=simple
+# Поправь путь на реальный путь до папки проекта на сервере
+WorkingDirectory=/home/YOUR_USER/foodbot
+ExecStart=/home/YOUR_USER/foodbot/venv/bin/python /home/YOUR_USER/foodbot/bot.py
+Restart=always
+RestartSec=5
+User=YOUR_USER
+
+[Install]
+WantedBy=multi-user.target
