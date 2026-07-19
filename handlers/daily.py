@@ -23,6 +23,35 @@ router.message.filter(F.from_user.id == HUSBAND_CHAT_ID)
 router.callback_query.filter(F.from_user.id == HUSBAND_CHAT_ID)
 
 
+async def send_daily_question_with_check(bot: Bot):
+    """Отправляет вопрос, только если муж ещё не сделал НИКАКОГО выбора сегодня."""
+    if await db.has_todays_any_choice():
+        return
+    await send_daily_question(bot)
+
+
+async def send_reminder(bot: Bot):
+    """Отправляет напоминание, если муж ещё не выбрал БЛЮДО сегодня (доставка не считается)."""
+    if await db.has_todays_meal_choice():
+        return
+
+    # Проверяем, есть ли мясо в остатках
+    meats = await db.get_meats_in_stock()
+    if meats:
+        await bot.send_message(
+            HUSBAND_CHAT_ID,
+            "⏰ Напоминаю! Ты ещё не выбрал, что будем есть сегодня.\n"
+            "Нажми /food или используй кнопку ниже 👇",
+            reply_markup=kb.meats_keyboard(meats)
+        )
+    else:
+        await bot.send_message(
+            HUSBAND_CHAT_ID,
+            "⏰ Напоминаю! Ты ещё не выбрал, что будем есть сегодня.\n"
+            "Ничего в запасах нет, можем заказать доставку 🚚",
+            reply_markup=kb.meats_keyboard([])
+        )
+
 async def send_daily_question(bot: Bot):
     """Вызывается планировщиком (или вручную через /ask жены)."""
     meats = await db.get_meats_in_stock()
@@ -35,7 +64,7 @@ async def send_daily_question(bot: Bot):
         )
         return
     await bot.send_message(
-        HUSBAND_CHAT_ID, "Че едим сегодня?)", reply_markup=kb.meats_keyboard(meats)
+        HUSBAND_CHAT_ID, "🍔 Че едим сегодня? 🍔", reply_markup=kb.meats_keyboard(meats)
     )
 
 
@@ -51,7 +80,7 @@ async def send_daily_question_forced(bot: Bot):
         )
         return
     await bot.send_message(
-        HUSBAND_CHAT_ID, "Че едим сегодня?)", reply_markup=kb.meats_keyboard(meats)
+        HUSBAND_CHAT_ID, "🍔 Че едим сегодня? 🍔", reply_markup=kb.meats_keyboard(meats)
     )
 
 

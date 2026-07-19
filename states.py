@@ -24,8 +24,10 @@ class EditGarnishes(StatesGroup):
 
 
 class SetTime(StatesGroup):
-    """Диалог настройки времени ежедневной рассылки."""
-    waiting_time = State()
+    """Диалог настройки времени."""
+    waiting_time = State()              # для /settime
+    waiting_reminder_time = State()     # для /setreminder
+    waiting_cancel_time = State()       # для /setcancel
 
 
 class DailyMeal(StatesGroup):

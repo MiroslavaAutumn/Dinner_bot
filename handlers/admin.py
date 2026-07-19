@@ -796,6 +796,8 @@ async def delete_confirm(callback: CallbackQuery, state: FSMContext):
 
 # ---------- /settime ----------
 
+# ---------- /settime ----------
+
 @router.message(Command("settime"))
 async def cmd_settime(message: Message, state: FSMContext):
     await state.set_state(SetTime.waiting_time)
@@ -828,26 +830,76 @@ async def settime_entered(message: Message, state: FSMContext, bot: Bot):
 
     await message.answer(f"Готово ✅ Теперь вопрос будет приходить каждый день в {text}")
 
+# ---------- /setreminder (установить время напоминания) ----------
+
+@router.message(Command("setreminder"))
+async def cmd_setreminder(message: Message, state: FSMContext):
+    """Установить время отправки напоминания мужу, если он не выбрал."""
+    await state.set_state(SetTime.waiting_reminder_time)
+    await message.answer(
+        "В какое время отправлять напоминание мужу, если он не выбрал блюдо?\n"
+        "Введи в формате ЧЧ:ММ, например: 14:00"
+    )
+
+
+@router.message(SetTime.waiting_reminder_time)
+async def reminder_time_entered(message: Message, state: FSMContext, bot: Bot):
+    """Обработка ввода времени напоминания."""
+    text = message.text.strip()
+    parts = text.split(":")
+    valid = (
+        len(parts) == 2
+        and parts[0].isdigit()
+        and parts[1].isdigit()
+        and 0 <= int(parts[0]) <= 23
+        and 0 <= int(parts[1]) <= 59
+    )
+    if not valid:
+        await message.answer("Не похоже на время. Введи в формате ЧЧ:ММ, например: 14:00")
+        return
+
+    await db.set_reminder_time(text)
+    await state.clear()
+
+    from scheduler import reschedule_reminder_job
+    reschedule_reminder_job(bot, text)
+
+    await message.answer(f"✅ Готово! Напоминание будет приходить в {text}, если муж ещё не выбрал блюдо.")
+
+
+# ---------- /setcancel (установить время на изменение выбора) ----------
 
 # ---------- /setcancel (установить время на изменение выбора) ----------
 
 @router.message(Command("setcancel"))
 async def cmd_setcancel(message: Message, state: FSMContext):
     """Установить время на изменение выбора для мужа."""
-    args = message.text.split()
+    await state.set_state(SetTime.waiting_cancel_time)
+    await message.answer(
+        "Введи время, в течение которого муж может изменить выбор.\n"
+        "Формат: часы минуты\n"
+        "Например: 4 30 — 4 часа 30 минут\n"
+        "Или: 0 35 — 35 минут"
+    )
 
-    if len(args) != 3:
+
+@router.message(SetTime.waiting_cancel_time)
+async def cancel_time_entered(message: Message, state: FSMContext, bot: Bot):
+    """Обработка ввода времени на изменение выбора."""
+    args = message.text.strip().split()
+
+    if len(args) != 2:
         await message.answer(
             "❌ Неверный формат.\n"
-            "Используй: /setcancel часы минуты\n"
-            "Например: /setcancel 4 30 — 4 часа 30 минут\n"
-            "Или: /setcancel 0 35 — 35 минут"
+            "Введи два числа: часы и минуты\n"
+            "Например: 4 30 — 4 часа 30 минут\n"
+            "Или: 0 35 — 35 минут"
         )
         return
 
     try:
-        hours = int(args[1])
-        minutes = int(args[2])
+        hours = int(args[0])
+        minutes = int(args[1])
     except ValueError:
         await message.answer("❌ Часы и минуты должны быть числами.")
         return
@@ -863,6 +915,7 @@ async def cmd_setcancel(message: Message, state: FSMContext):
         return
 
     await db.set_cancel_window_minutes(total_minutes)
+    await state.clear()
 
     if hours > 0 and minutes > 0:
         time_text = f"{hours} ч {minutes} мин"
@@ -872,7 +925,6 @@ async def cmd_setcancel(message: Message, state: FSMContext):
         time_text = f"{minutes} мин"
 
     await message.answer(f"✅ Готово! Время на изменение выбора установлено: {time_text}")
-
 
 # ---------- /showcancel (показать текущее время) ----------
 
@@ -925,7 +977,8 @@ async def cmd_help(message: Message):
         "/delete — удалить позиции (множественный выбор)\n\n"
         "<b>Рассылка мужу:</b>\n"
         "/settime ЧЧ:ММ — во сколько каждый день присылать вопрос\n"
-        "/setcancel часы минуты — установить время на изменение выбора\n"
+        "/setreminder ЧЧ:ММ — время напоминания, если муж не выбрал\n"
+        "/setcancel ЧЧ:ММ — установить время на изменение выбора\n"
         "   Например: /setcancel 4 30 — 4 часа 30 минут\n"
         "   Или: /setcancel 0 35 — 35 минут\n"
         "/showcancel — показать текущее время на изменение выбора\n"

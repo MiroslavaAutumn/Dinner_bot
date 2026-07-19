@@ -42,13 +42,15 @@ async def setup_commands(bot: Bot):
         BotCommand(command="edit", description="Изменить количество или переименовать"),
         BotCommand(command="delete", description="Удалить позицию"),
         BotCommand(command="setgarnish", description="Изменить гарниры для мяса"),
-        BotCommand(command="settime", description="Время ежедневного вопроса"),
-        BotCommand(command="setcancel", description="Время на изменение выбора"),
-        BotCommand(command="showcancel", description="Показать время на изменение"),
+        BotCommand(command="settime", description="Установить время ежедневного вопроса"),
+        BotCommand(command="setreminder", description="Установить время напоминания"),
+        BotCommand(command="setcancel", description="Установить время на изменение выбора"),
+        BotCommand(command="showcancel", description="Показать время на изменение выбора"),
         BotCommand(command="ask", description="Спросить мужа прямо сейчас"),
         BotCommand(command="help", description="Список всех команд"),
         BotCommand(command="start", description="Приветственное сообщение"),
     ]
+
     await _set_commands_safe(bot, admin_commands, WIFE_CHAT_ID, "жены")
 
     # Команды мужа видны только в его чате

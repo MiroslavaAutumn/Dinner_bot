@@ -317,6 +317,33 @@ async def set_setting(key: str, value: str):
 
 CANCEL_WINDOW_KEY = "cancel_window_minutes"
 
+REMINDER_TIME_KEY = "reminder_time"
+
+async def get_reminder_time() -> str:
+    """Возвращает время отправки напоминания. По умолчанию '14:00'."""
+    value = await get_setting(REMINDER_TIME_KEY, "14:00")
+    return value
+
+
+async def set_reminder_time(time_str: str):
+    """Устанавливает время отправки напоминания."""
+    await set_setting(REMINDER_TIME_KEY, time_str)
+
+
+async def has_todays_choice() -> bool:
+    """Проверяет, сделал ли муж выбор сегодня (независимо от статуса)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM meal_log 
+            WHERE date(created_at) = date(?)
+            AND is_delivery = 0
+            LIMIT 1
+            """,
+            (datetime.now().isoformat(),)
+        )
+        row = await cursor.fetchone()
+        return row is not None
 
 async def get_cancel_window_minutes() -> int:
     """Возвращает время на изменение выбора в минутах. По умолчанию 240 (4 часа)."""
@@ -450,3 +477,33 @@ async def finalize_expired_choices():
                 (row[0],)
             )
         await db.commit()
+
+async def has_todays_meal_choice() -> bool:
+    """Проверяет, сделал ли муж выбор БЛЮДА сегодня (не доставку)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM meal_log 
+            WHERE date(created_at) = date(?)
+            AND is_delivery = 0
+            LIMIT 1
+            """,
+            (datetime.now().isoformat(),)
+        )
+        row = await cursor.fetchone()
+        return row is not None
+
+
+async def has_todays_any_choice() -> bool:
+    """Проверяет, сделал ли муж любой выбор сегодня (блюдо или доставка)."""
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT 1 FROM meal_log 
+            WHERE date(created_at) = date(?)
+            LIMIT 1
+            """,
+            (datetime.now().isoformat(),)
+        )
+        row = await cursor.fetchone()
+        return row is not None
